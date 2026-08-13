@@ -1845,6 +1845,35 @@ line_crosses_rect(fz_point a, fz_point b, fz_rect r)
 	return fz_is_point_inside_rect(a, r);
 }
 
+/*
+	A decorator must cross the glyph vertically, but its longitudinal extent
+	must also cover the glyph centre. Using rectangle intersection alone makes
+	the character immediately beyond a line endpoint inherit underline or
+	strikeout whenever even a small part of its bbox touches the line.
+
+	Projecting on the text direction keeps this test valid for rotated text and
+	chooses the character boundary by rendered geometry instead of Unicode.
+*/
+static int
+line_crosses_char(fz_point a, fz_point b, fz_point dir, fz_rect r)
+{
+	fz_point centre;
+	float ac, aa, ab, lo, hi;
+
+	if (!line_crosses_rect(a, b, r))
+		return 0;
+
+	centre.x = (r.x0 + r.x1) * 0.5f;
+	centre.y = (r.y0 + r.y1) * 0.5f;
+	aa = a.x * dir.x + a.y * dir.y;
+	ab = b.x * dir.x + b.y * dir.y;
+	ac = centre.x * dir.x + centre.y * dir.y;
+	lo = fz_min(aa, ab);
+	hi = fz_max(aa, ab);
+
+	return lo <= ac && ac <= hi;
+}
+
 static float
 calculate_ascent(fz_point p, fz_point origin, fz_point dir)
 {
@@ -1981,7 +2010,7 @@ check_strikeout(fz_context *ctx, fz_stext_block *block, fz_point from, fz_point 
 
 				ch_box = expanded_rect_from_quad(ch->quad, line->dir, ch->origin, ch->size);
 
-				if (!line_crosses_rect(from, to, ch_box))
+				if (!line_crosses_char(from, to, dir, ch_box))
 					continue;
 
 				/* If the thickness is more than a 1/4 of the size, it's a highlight, not a
