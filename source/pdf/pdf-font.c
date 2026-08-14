@@ -1500,6 +1500,15 @@ pdf_load_font_descriptor(fz_context *ctx, pdf_document *doc, pdf_font_desc *font
 			pdf_load_system_font(ctx, fontdesc, fontname, collection);
 	}
 
+	/* The descriptor's ItalicAngle records the slant of the font's design.
+	 * An italic subset embedded without its style bits and without an
+	 * "Italic"/"Oblique" name is otherwise indistinguishable from an
+	 * upright font, so trust a clearly non-zero declared angle. The
+	 * threshold guards against producers that write small bogus values.
+	 * This sets the descriptive flag only; rendering is unchanged. */
+	if (!fontdesc->font->flags.is_italic && fabsf(fontdesc->italic_angle) >= 4)
+		fontdesc->font->flags.is_italic = 1;
+
 	/* Check for DynaLab fonts that must use hinting */
 	face = fontdesc->font->ft_face;
 	if (ft_kind(ctx, face) == TRUETYPE)
