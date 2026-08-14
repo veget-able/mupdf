@@ -504,7 +504,9 @@ enum fz_stext_char_flags
 	FZ_STEXT_UNICODE_IS_GID = 256,
 	FZ_STEXT_SYNTHETIC_LARGE = 512,
 	FZ_STEXT_HIGHLIGHT = 1024,
-	FZ_STEXT_SYNTHETIC_ITALIC = 2048 /* Slanted by the text matrix (or mupdf's fake italic), not by the font design */
+	FZ_STEXT_SYNTHETIC_ITALIC = 2048, /* Slanted by the text matrix (or mupdf's fake italic), not by the font design */
+	FZ_STEXT_SUPERSCRIPT = 4096, /* Raised off the line's baseline in a reduced size */
+	FZ_STEXT_SUBSCRIPT = 8192 /* Lowered off the line's baseline in a reduced size */
 };
 
 /**

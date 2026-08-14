@@ -2093,6 +2093,118 @@ check_rects_for_strikeout(fz_context *ctx, fz_stext_device *tdev, fz_stext_page 
 	}
 }
 
+
+/*
+	Mark super/subscript characters: within one line, characters drawn in
+	a clearly reduced size whose baseline sits clearly off the baseline of
+	the full-size text are scripts. The reference size is the largest
+	character size on the line; the reference baseline is the lowest
+	baseline among near-full-size characters, both measured along the
+	line direction so rotated text behaves identically. Long reduced-size
+	runs (> 10 alphanumeric characters) are treated as deliberate small
+	text, not scripts, and invisible characters (an OCR text layer) carry
+	no reliable geometry, so both are left unmarked.
+*/
+static void
+check_line_scripts(fz_context *ctx, fz_stext_page *page)
+{
+	fz_stext_block *block;
+	fz_stext_line *line;
+	fz_stext_char *ch;
+
+	for (block = page->first_block; block != NULL; block = block->next)
+	{
+		if (block->type != FZ_STEXT_BLOCK_TEXT)
+			continue;
+		for (line = block->u.t.first_line; line != NULL; line = line->next)
+		{
+			fz_point perp = fz_make_point(-line->dir.y, line->dir.x);
+			float normal_size = 0;
+			float baseline = -FLT_MAX;
+			int n_normal = 0;
+
+			for (ch = line->first_char; ch != NULL; ch = ch->next)
+			{
+				if (ch->c == ' ' || !(ch->flags & (FZ_STEXT_FILLED | FZ_STEXT_STROKED)))
+					continue;
+				if (ch->size > normal_size)
+					normal_size = ch->size;
+			}
+			if (normal_size <= 0)
+				continue;
+			for (ch = line->first_char; ch != NULL; ch = ch->next)
+			{
+				if (ch->c == ' ' || !(ch->flags & (FZ_STEXT_FILLED | FZ_STEXT_STROKED)))
+					continue;
+				if (ch->size >= 0.95f * normal_size)
+				{
+					float coord = ch->origin.x * perp.x + ch->origin.y * perp.y;
+					if (coord > baseline)
+						baseline = coord;
+					n_normal++;
+				}
+			}
+			if (n_normal == 0)
+				continue;
+
+			ch = line->first_char;
+			while (ch != NULL)
+			{
+				fz_stext_char *run_end;
+				int n_alnum = 0;
+				int flag = 0;
+
+				if (ch->c == ' ' || !(ch->flags & (FZ_STEXT_FILLED | FZ_STEXT_STROKED)) ||
+					ch->size >= 0.85f * normal_size)
+				{
+					ch = ch->next;
+					continue;
+				}
+				{
+					float coord = ch->origin.x * perp.x + ch->origin.y * perp.y;
+					float disp = coord - baseline;
+					if (disp < -0.1f * normal_size)
+						flag = FZ_STEXT_SUPERSCRIPT;
+					else if (disp > 0.1f * normal_size)
+						flag = FZ_STEXT_SUBSCRIPT;
+				}
+				if (flag == 0)
+				{
+					ch = ch->next;
+					continue;
+				}
+				/* Extend over the whole reduced-size run at this displacement. */
+				for (run_end = ch; run_end != NULL; run_end = run_end->next)
+				{
+					float coord, disp;
+					if (run_end->c == ' ')
+						continue;
+					if (!(run_end->flags & (FZ_STEXT_FILLED | FZ_STEXT_STROKED)) ||
+						run_end->size >= 0.85f * normal_size)
+						break;
+					coord = run_end->origin.x * perp.x + run_end->origin.y * perp.y;
+					disp = coord - baseline;
+					if ((flag == FZ_STEXT_SUPERSCRIPT && disp >= -0.1f * normal_size) ||
+						(flag == FZ_STEXT_SUBSCRIPT && disp <= 0.1f * normal_size))
+						break;
+					if (run_end->c < 128 ? (run_end->c >= '0' && run_end->c <= '9') ||
+						(run_end->c >= 'A' && run_end->c <= 'Z') ||
+						(run_end->c >= 'a' && run_end->c <= 'z') : 1)
+						n_alnum++;
+				}
+				if (n_alnum >= 1 && n_alnum <= 10)
+				{
+					fz_stext_char *it;
+					for (it = ch; it != run_end; it = it->next)
+						if (it->c != ' ')
+							it->flags |= flag;
+				}
+				ch = (run_end == ch) ? ch->next : run_end;
+			}
+		}
+	}
+}
+
 static void
 fz_stext_close_device(fz_context *ctx, fz_device *dev)
 {
@@ -2107,7 +2219,10 @@ fz_stext_close_device(fz_context *ctx, fz_device *dev)
 	fixup_bboxes_and_bidi(ctx, page->first_block);
 
 	if (tdev->opts.flags & FZ_STEXT_COLLECT_STYLES)
+	{
 		check_rects_for_strikeout(ctx, tdev, page);
+		check_line_scripts(ctx, page);
+	}
 
 	/* TODO: smart sorting of blocks and lines in reading order */
 	/* TODO: unicode NFC normalization */
