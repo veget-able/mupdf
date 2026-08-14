@@ -782,6 +782,22 @@ fz_add_stext_char_imp(fz_context *ctx, fz_stext_device *dev, fz_font *font, int 
 	/* Preserve RTL-ness only (and ignore level) so we can use bit 2 as "visual" tag for reordering pass. */
 	bidi = bidi & 1;
 
+	/* Synthetic italic: an upright font sheared by the text matrix renders
+	 * slanted without any italic metadata. Measure the non-orthogonality of
+	 * the matrix axes: |u.v| / |u x v| is the tangent of the slant angle,
+	 * and is zero for any rotation or axis-aligned scale, so rotated but
+	 * unsheared text cannot false-positive. 0.1 (~6 degrees) skips numeric
+	 * noise while catching the shallowest deliberate slants (typical
+	 * synthetic italic shears by 0.2-0.36). Also expose fonts mupdf itself
+	 * slants at render time (fake_italic) so extraction matches rendering.
+	 */
+	{
+		float det = trm.a * trm.d - trm.b * trm.c;
+		float dot = trm.a * trm.c + trm.b * trm.d;
+		if (font->flags.fake_italic || (det != 0 && fabsf(dot) > 0.1f * fabsf(det)))
+			flags |= FZ_STEXT_SYNTHETIC_ITALIC;
+	}
+
 	/* dir = direction vector for motion. ndir = normalised(dir) */
 	if (wmode == 0)
 	{
